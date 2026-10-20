@@ -31,8 +31,8 @@ training:
     patience: 1000
     label_smoothing: 0.1
     warmup_step: 2000
-    lambda_mono: 0.0
-    lambda_cont: 0.0
+    lambda_mono: 0.1
+    lambda_cont: 0.2
     mono_margin: 1.0
     wandb:
         enabled: true
