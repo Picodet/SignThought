@@ -1,35 +1,53 @@
-# SignThought ablation protocol (paper-aligned)
+# SignThought stable-baseline-based ablation protocol
 
-## Immutable baseline and branch scope
-- Original baseline commit: `fdce86a9b13f9cd82ac1719a73c6b0244d171cb4`.
-- Shared implementation commit: `0d3490d302d93269d4c9c3e544180027517a3a0d`.
-- The original `main` branch is not modified by this work. All writes are confined to `ablation/*` branches.
+## Source of truth
+Use the user-supplied **SignThought Stable Baseline V1.0** config package and `基准 YAML.yaml` as the training-hyperparameter source. Do not substitute the paper-only 200-epoch / 2-layer setup for these ablation runs.
 
-## What the paper actually specifies
-The supplied SignThought paper, Appendix A.1 and Table 4, reports 2-layer encoder and decoder, 2 Thinking layers, K=8 Thought slots, M=16 segment tokens, 200 epochs, d=256, Adam lr=1e-3 with betas (0.9, 0.998), weight decay 3e-3, batch size 32, label smoothing 0.1, dropout 0.1, and 2000 warmup steps. The experiment configs now follow these settings. The repository's original YAML differed (1 encoder/decoder layer, M=8, 500 epochs, and no paper weight decay/betas), so these are paper-protocol runs rather than reproductions of the repository's old default run.
+The uploaded baseline package identifies upstream source `fletcherjiang/SignThought` at commit `f9ce7d175308e8c736df53dd29493503239738ea`. This working repository is `Picodet/SignThought`; its original `main` remains at `fdce86a9b13f9cd82ac1719a73c6b0244d171cb4`. The ablation branches preserve the local ablation implementation rather than resetting to the upstream pin. We checked that the current branch `main/helpers.py` and `main/builders.py` have the runtime optimizer/scheduler behavior documented in the supplied package, but the different repository/commit pins mean this is a matched parameter recipe, not a claim that every source line is identical.
 
-Table 4 ID 1 turns off latent Thinking, causal Thought updates, routing, prior injection, and both structural losses while keeping the dual-stream decoder. The paper does not specify in enough detail what the first decoder stream consumes after Thinking is removed. Therefore the exact replacement is an implementation inference, not a claim about the authors' unique code.
+## Stable baseline parameters (shared across conditions)
+- PHOENIX2014T official train/dev/test splits; 1024-dimensional pre-extracted features as expected by the source.
+- Seeds: 42, 123, 2026; use paired seeds across all three ablation conditions.
+- 500 epochs; Adam learning rate 0.001; batch size 32; validation logs 6; patience 1000; decrease factor 0.8.
+- Translation loss weight 1.0; BLEU selection metric; sentence batching; batch translation normalization; label smoothing 0.1.
+- Beam size 7 and beam alpha 4 for validation/test decoding.
+- Encoder and decoder each have 1 Transformer layer, 8 heads, hidden size 256, FF size 1024, dropout 0.1. Embeddings use dimension 256, scale=false, dropout 0.1, batch norm and softsign.
+- Thinking settings: K=8, M=8 segments, 2 Thinking layers, 8 heads, hidden size 256, FF size 1024, dropout 0.1, causal self-attention, Sinkhorn iterations 5, tau 1.0, segmentation temperature 0.08, dense retrieval, sparse_topk=4, deformable_radius=2, routing bias scale 1.0.
+- Preserve `warmup_step: 2000` for configuration fidelity, but do not claim warmup is active: the runtime scheduler is plateau.
 
-## Branches and variants
-- `ablation/full-v1`: full model; Thought branch and structural regularizers enabled.
-- `ablation/no-thought-dual-evidence-v1`: primary Table-4-ID-1-inspired variant. It removes all Thought computation and routing, but retains a two-cross-attention decoder by replacing the first stream with visual-evidence attention over encoder memory. This replacement is explicit and reproducible, but remains an inference because the paper does not specify that exact replacement.
-- `ablation/no-thought-v1`: single-stream/direct-visual decoder; closer to the paper's ID 4 decoder simplification and an additional control, not the primary ID 1 reproduction.
-- `ablation/common-v1`: shared implementation, all three configs, protocol documentation, tests, and smoke workflow.
+## Runtime-effective optimizer details (important)
+The YAML uses `optimizer: adamw` because that is what the stable baseline uses, but the current source implementation resolves this key to `torch.optim.Adam`. `main/helpers.py` injects `betas=[0.95, 0.998]`, `scheduling="plateau"`, and `weight_decay=0.003` into training config. These effective values intentionally are not duplicated as YAML keys because the helper overwrites them. Do not silently switch to AdamW, betas (0.9, 0.998), or a warmup scheduler within this architecture ablation.
 
-Configs:
+The supplied baseline package reports best Dev BLEU-4 >=25 for seeds 42/123/2026 and Test BLEU-4 of 27.65, 26.81, and 26.82 (mean 27.09). These are reference baseline results from the supplied package, not results of the ablation runs and not a guarantee for this different repository pin.
+
+## Ablation variants
+- `full`: Thinking enabled; `cross_attention_mode=dual`; decoder routing enabled; `lambda_mono=0.1`, `lambda_cont=0.2`.
+- `no_thought`: Thinking not instantiated; direct visual-only decoder; routing disabled; structural losses set to zero because the corresponding structures do not exist.
+- `no_thought_dual_evidence`: Thinking not instantiated; keeps two decoder evidence-attention stages by replacing Thought retrieval with a second visual-evidence retrieval; routing disabled; structural losses zero. This is an explicit implementation control inspired by the paper's no-Thought dual-stream ablation, not a claim that the paper specifies this exact replacement.
+
+## Config matrix (available on every ablation branch)
+Seed 42 uses the original concise filenames:
 - `configs/ablation/sign_phoenix_full.yaml`
-- `configs/ablation/sign_phoenix_no_thought_dual_evidence.yaml`
 - `configs/ablation/sign_phoenix_no_thought.yaml`
+- `configs/ablation/sign_phoenix_no_thought_dual_evidence.yaml`
 
-## Fair-comparison protocol
-Use identical dataset splits, vocabulary/data preprocessing, feature files, model width, optimizer, learning-rate schedule, batch size, decoding configuration, and epoch budget. Full uses lambda_mono=0.1 and lambda_cont=0.2 as specified in the paper. No-Thought variants set both to zero because the associated Thought structures do not exist. Run seeds 42, 123, and 2026 with distinct output directories. Select checkpoints on dev only; use the test set only after selection. Report per-seed results, mean/std, BLEU-4, ROUGE, parameter count, peak memory, and decoding latency.
+Seeds 123 and 2026 use:
+- `configs/ablation/sign_phoenix_full_seed123.yaml`, `configs/ablation/sign_phoenix_full_seed2026.yaml`
+- `configs/ablation/sign_phoenix_no_thought_seed123.yaml`, `configs/ablation/sign_phoenix_no_thought_seed2026.yaml`
+- `configs/ablation/sign_phoenix_no_thought_dual_evidence_seed123.yaml`, `configs/ablation/sign_phoenix_no_thought_dual_evidence_seed2026.yaml`
 
-## Checks before long runs
-1. The GitHub Actions smoke workflow runs `compileall` and validates YAML configuration consistency.
-2. Run a local one-batch forward/backward and dev decoding test before full runs.
-3. In No-Thought variants assert `model.thinking is None`, no `thought_trg_att` parameters exist, routing is disabled, and structural loss weights are zero.
-4. Verify the actual optimizer class. In this repository, the `adamw` config key currently maps to `torch.optim.Adam`, not `torch.optim.AdamW`. This pre-existing mismatch is documented rather than silently changed inside a structural ablation; resolve it identically for every condition in a separate optimizer-correction experiment if strict AdamW is required.
-5. Save the exact config, branch/commit SHA, seed, best checkpoint, and test output for every run.
+Each variant/seed has a distinct `model_dir` containing `auto`, which the source replaces with a timestamp, and a distinct W&B run name. W&B is enabled to match the supplied baseline; if unavailable, disable it consistently and record that environment change in the experiment manifest.
 
-## Main branch protection
-The GitHub integration cannot configure branch-protection rules for this private repository (the protection endpoint returns 403, and rulesets report a plan/permission restriction). This work has not written to `main`. Repository-level enforcement still needs an administrator to enable protection in GitHub settings.
+## Run examples
+```bash
+CUDA_VISIBLE_DEVICES=0 python -m main train configs/ablation/sign_phoenix_full.yaml --gpu_id 0
+CUDA_VISIBLE_DEVICES=0 python -m main train configs/ablation/sign_phoenix_no_thought.yaml --gpu_id 0
+CUDA_VISIBLE_DEVICES=0 python -m main train configs/ablation/sign_phoenix_no_thought_dual_evidence.yaml --gpu_id 0
+```
+Use the corresponding `_seed123.yaml` and `_seed2026.yaml` files for the other paired seeds. Select checkpoints on Dev BLEU only and evaluate Test after checkpoint selection. Report per-seed results and mean/std, BLEU-4, ROUGE, parameter count, peak memory and decoding latency.
+
+## Validation and limits
+GitHub Actions checks Python compilation and validates all nine config combinations and the fixed runtime optimizer/scheduler settings. This does not substitute for GPU one-batch forward/backward, decoding smoke tests, or full training. Before long runs, verify that No-Thought models have `model.thinking is None`, no Thought attention parameters, no routing prior, and zero structural-loss weights.
+
+## Main branch
+No changes have been committed to `main`; its SHA remains `fdce86a9b13f9cd82ac1719a73c6b0244d171cb4`. GitHub API access cannot enable branch protection for this private repository (403 / plan or permission restriction); a repository admin must enable PR-required branch protection in GitHub settings.
