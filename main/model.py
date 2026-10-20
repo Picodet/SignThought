@@ -201,6 +201,8 @@ class SignModel(nn.Module):
             * translation_loss_weight
         )
 
+        if self.thinking is None and (lambda_mono or lambda_cont):
+            raise ValueError("No-Thought forbids structural loss weights")
         if self.thinking is not None and (lambda_mono or lambda_cont):
             structural_loss = self.thinking.structural_loss(
                 routing_cache=thought_routing,
@@ -341,6 +343,19 @@ def build_model(
             emb_dropout=enc_emb_dropout,
         )
 
+    _model_thinking_cfg = cfg.get("thinking", {})
+    _top_thinking_cfg = thinking_cfg if thinking_cfg is not None else {}
+    _tcfg = {**_model_thinking_cfg, **_top_thinking_cfg}
+    thinking_enabled = _tcfg.get("enabled", True)
+    decoder_mode = cfg["decoder"].get("cross_attention_mode", "dual")
+    if thinking_enabled and decoder_mode != "dual":
+        raise ValueError("Thinking requires dual decoder")
+    if not thinking_enabled:
+        if decoder_mode not in {"visual_only", "dual_evidence"}:
+            raise ValueError("No-Thought needs a direct or dual-evidence decoder")
+        if _tcfg.get("enable_decoder_routing", False):
+            raise ValueError("No-Thought forbids decoder routing")
+
     # build decoder
     txt_embed: Union[Embeddings, None] = Embeddings(
             **cfg["decoder"]["embeddings"],
@@ -367,27 +382,26 @@ def build_model(
             emb_dropout=dec_emb_dropout,
         )
 
-    _model_thinking_cfg = cfg.get("thinking", {})
-    _top_thinking_cfg = thinking_cfg if thinking_cfg is not None else {}
-    _tcfg = {**_model_thinking_cfg, **_top_thinking_cfg}
-    thinking = LatentCoT(
-        hidden_size=_tcfg.get("hidden_size", cfg["encoder"]["hidden_size"]),
-        num_heads=_tcfg.get("num_heads", cfg["encoder"]["num_heads"]),
-        ff_size=_tcfg.get("ff_size", cfg["encoder"].get("ff_size", 4 * cfg["encoder"]["hidden_size"])),
-        num_layers=_tcfg.get("num_layers", 2),
-        dropout=_tcfg.get("dropout", cfg["encoder"].get("dropout", 0.1)),
-        K=_tcfg.get("K", 6),
-        causal_self_attn=_tcfg.get("causal_self_attn", True),
-        num_segments=_tcfg.get("num_segments", 1),
-        sinkhorn_iters=_tcfg.get("sinkhorn_iters", 3),
-        sinkhorn_tau=_tcfg.get("sinkhorn_tau", 1.0),
-        segmentation_temperature=_tcfg.get("segmentation_temperature", 0.1),
-        retrieval_mode=_tcfg.get("retrieval_mode", "dense"),
-        sparse_topk=_tcfg.get("sparse_topk", 0),
-        deformable_radius=_tcfg.get("deformable_radius", 1),
-        enable_decoder_routing=_tcfg.get("enable_decoder_routing", False),
-        routing_bias_scale=_tcfg.get("routing_bias_scale", 1.0),
-    )
+    thinking = None
+    if thinking_enabled:
+        thinking = LatentCoT(
+            hidden_size=_tcfg.get("hidden_size", cfg["encoder"]["hidden_size"]),
+            num_heads=_tcfg.get("num_heads", cfg["encoder"]["num_heads"]),
+            ff_size=_tcfg.get("ff_size", cfg["encoder"].get("ff_size", 4 * cfg["encoder"]["hidden_size"])),
+            num_layers=_tcfg.get("num_layers", 2),
+            dropout=_tcfg.get("dropout", cfg["encoder"].get("dropout", 0.1)),
+            K=_tcfg.get("K", 6),
+            causal_self_attn=_tcfg.get("causal_self_attn", True),
+            num_segments=_tcfg.get("num_segments", 1),
+            sinkhorn_iters=_tcfg.get("sinkhorn_iters", 3),
+            sinkhorn_tau=_tcfg.get("sinkhorn_tau", 1.0),
+            segmentation_temperature=_tcfg.get("segmentation_temperature", 0.1),
+            retrieval_mode=_tcfg.get("retrieval_mode", "dense"),
+            sparse_topk=_tcfg.get("sparse_topk", 0),
+            deformable_radius=_tcfg.get("deformable_radius", 1),
+            enable_decoder_routing=_tcfg.get("enable_decoder_routing", False),
+            routing_bias_scale=_tcfg.get("routing_bias_scale", 1.0),
+        )
 
     model = SignModel(
         encoder=encoder,

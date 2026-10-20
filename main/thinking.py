@@ -420,6 +420,7 @@ class LatentCoT(nn.Module):
         lambda_mono: float = 0.0,
         lambda_cont: float = 0.0,
         mono_margin: float = 1.0,
+        mono_reduction: str = "pair_mean",
     ) -> Tensor:
         binding = routing_cache.get("binding") if routing_cache else None
         if binding is None:
@@ -428,14 +429,17 @@ class LatentCoT(nn.Module):
         loss = binding.new_zeros(())
         if lambda_mono:
             loss = loss + lambda_mono * self.monotonicity_loss(
-                binding=binding, margin=mono_margin
+                binding=binding, margin=mono_margin,
+                reduction=mono_reduction,
             )
         if lambda_cont:
             loss = loss + lambda_cont * self.contiguity_loss(binding=binding)
         return loss
 
     @staticmethod
-    def monotonicity_loss(binding: Tensor, margin: float = 1.0) -> Tensor:
+    def monotonicity_loss(
+        binding: Tensor, margin: float = 1.0, reduction: str = "pair_mean"
+    ) -> Tensor:
         num_segments = binding.size(-1)
         positions = torch.arange(
             1, num_segments + 1, device=binding.device, dtype=binding.dtype
@@ -444,7 +448,11 @@ class LatentCoT(nn.Module):
         violations = F.relu(
             expected_index[:, :-1] - expected_index[:, 1:] + margin
         )
-        return violations.mean()
+        if reduction == "batch_sum":
+            return violations.sum(dim=1).mean()
+        if reduction == "pair_mean":
+            return violations.mean()
+        raise ValueError("Unknown monotonicity reduction")
 
     @staticmethod
     def contiguity_loss(binding: Tensor) -> Tensor:

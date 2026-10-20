@@ -476,6 +476,7 @@ class TransformerDecoder(Decoder):
         emb_dropout: float = 0.1,
         vocab_size: int = 1,
         freeze: bool = False,
+        cross_attention_mode: str = "dual",
         **kwargs
     ):
         """
@@ -495,6 +496,9 @@ class TransformerDecoder(Decoder):
         super(TransformerDecoder, self).__init__()
 
         self._output_size = vocab_size
+        if cross_attention_mode not in {"dual", "visual_only", "dual_evidence"}:
+            raise ValueError("Invalid cross_attention_mode")
+        self.cross_attention_mode = cross_attention_mode
 
         # create num_layers decoder layers and put them in a list
         self.layers = nn.ModuleList(
@@ -504,6 +508,7 @@ class TransformerDecoder(Decoder):
                     ff_size=ff_size,
                     num_heads=num_heads,
                     dropout=dropout,
+                    cross_attention_mode=cross_attention_mode,
                 )
                 for _ in range(num_layers)
             ]
@@ -555,8 +560,12 @@ class TransformerDecoder(Decoder):
 
         trg_mask = trg_mask & subsequent_mask(trg_embed.size(1)).type_as(trg_mask)
         encoder_output = self.emb_dropout(encoder_output)
+        if self.cross_attention_mode != "dual" and (
+            thought_states is not None or thought_routing is not None
+        ):
+            raise ValueError("No-Thought decoder received Thought inputs")
         thought_mask = None
-        if thought_states is not None:
+        if self.cross_attention_mode == "dual" and thought_states is not None:
             thought_states = self.emb_dropout(thought_states)
             thought_mask = thought_states.new_ones(
                 thought_states.size(0), 1, thought_states.size(1)

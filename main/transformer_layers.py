@@ -229,6 +229,7 @@ class TransformerDecoderLayer(nn.Module):
         ff_size: int = 0,
         num_heads: int = 0,
         dropout: float = 0.1,
+        cross_attention_mode: str = "dual",
     ):
         """
         Represents a single Transformer decoder layer.
@@ -242,6 +243,9 @@ class TransformerDecoderLayer(nn.Module):
         """
         super(TransformerDecoderLayer, self).__init__()
         self.size = size
+        if cross_attention_mode not in {"dual", "visual_only", "dual_evidence"}:
+            raise ValueError("Unsupported cross_attention_mode")
+        self.cross_attention_mode = cross_attention_mode
 
         self.trg_trg_att = MultiHeadedAttention(
             size=size,
@@ -249,11 +253,19 @@ class TransformerDecoderLayer(nn.Module):
             dropout=dropout
         )
 
-        self.thought_trg_att = MultiHeadedAttention(
-            size=size,
-            num_heads=num_heads,
-            dropout=dropout
-        )
+        # Inactive streams must not allocate parameters.
+        if cross_attention_mode == "dual":
+            self.thought_trg_att = MultiHeadedAttention(
+                size=size, num_heads=num_heads, dropout=dropout
+            )
+            self.thought_layer_norm = nn.LayerNorm(size, eps=1e-6)
+            self.dropout_thought = nn.Dropout(dropout)
+        elif cross_attention_mode == "dual_evidence":
+            self.pre_src_att = MultiHeadedAttention(
+                size=size, num_heads=num_heads, dropout=dropout
+            )
+            self.pre_src_norm = nn.LayerNorm(size, eps=1e-6)
+            self.dropout_pre_src = nn.Dropout(dropout)
 
         self.src_trg_att = MultiHeadedAttention(
             size=size,
@@ -264,11 +276,9 @@ class TransformerDecoderLayer(nn.Module):
         self.feed_forward = PositionwiseFeedForward(input_size=size,ff_size=ff_size,dropout=dropout)
         self.x_layer_norm = nn.LayerNorm(size, eps=1e-6)
         self.dec_layer_norm = nn.LayerNorm(size, eps=1e-6)
-        self.thought_layer_norm = nn.LayerNorm(size, eps=1e-6)
         self.dropout = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
         self.dropout3 = nn.Dropout(dropout)
-        self.dropout_thought = nn.Dropout(dropout)
 
         self.output_norm = nn.LayerNorm(size)
 
@@ -296,26 +306,32 @@ class TransformerDecoderLayer(nn.Module):
         h1 = self.trg_trg_att(x_norm, x_norm, x_norm, mask=trg_mask)
         h1 = self.dropout(h1) + x
 
-        # thought-chain attention (if provided)
-        thought_attention = None
-        if thought_memory is not None:
-            h_thought_norm = self.thought_layer_norm(h1)
-            h_thought, thought_attention = self.thought_trg_att(
-                h_thought_norm,
-                thought_memory,
-                thought_memory,
-                mask=thought_mask,
-                return_attention=True,
+        if self.cross_attention_mode == "dual":
+            if thought_memory is None:
+                raise ValueError("dual decoding requires Thought memory")
+            thought_input = self.thought_layer_norm(h1)
+            thought_output, thought_attention = self.thought_trg_att(
+                thought_input, thought_memory, thought_memory,
+                mask=thought_mask, return_attention=True,
             )
-            h_thought = self.dropout_thought(h_thought) + h1
+            h_thought = self.dropout_thought(thought_output) + h1
+            routing_bias = self._decoder_routing_bias(
+                thought_attention=thought_attention,
+                thought_routing=thought_routing, memory=memory,
+            )
+        elif self.cross_attention_mode == "dual_evidence":
+            if thought_memory is not None or thought_routing is not None:
+                raise ValueError("No-Thought decoder received Thought inputs")
+            pre_input = self.pre_src_norm(h1)
+            h_thought = h1 + self.dropout_pre_src(
+                self.pre_src_att(pre_input, memory, memory, mask=src_mask)
+            )
+            routing_bias = None
         else:
+            if thought_memory is not None or thought_routing is not None:
+                raise ValueError("No-Thought decoder received Thought inputs")
             h_thought = h1
-
-        routing_bias = self._decoder_routing_bias(
-            thought_attention=thought_attention,
-            thought_routing=thought_routing,
-            memory=memory,
-        )
+            routing_bias = None
 
         # source-target attention
         h1_norm = self.dec_layer_norm(h_thought)
