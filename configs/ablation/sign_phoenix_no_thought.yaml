@@ -58,7 +58,7 @@ model:
     decoder:
         cross_attention_mode: visual_only
         type: transformer
-        num_layers: 1
+        num_layers: 2
         num_heads: 8
         embeddings:
             embedding_dim: 256
