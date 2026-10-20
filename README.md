@@ -1,0 +1,110 @@
+# Think in Latent Thoughts: A New Paradigm for Gloss-Free Sign Language Translation
+[![Dataset](https://img.shields.io/badge/🤗%20Hugging%20Face-LC--HKSLT%20Dataset-yellow)](https://huggingface.co/datasets/fletcherjiang/LC-HKSLT)
+
+> **Accepted at ACL 2026 (Main)**
+
+
+Traditional SLT treats sign video segments as if they were directly mappable to static spoken-language words. This ignores **Productive Forms** in sign languages, constructions built on-the-fly through classifiers, spatial grammar, and motion modulation that cannot be enumerated as fixed lexical entries. A single "vehicle" handshape may express "park," "crash," or "drive" purely through variations in movement and spatial configuration. SignThought addresses this by introducing three key mechanisms:
+1. **Latent Thought Abstraction**: An ordered set of K learnable thought slots serves as the model's working memory, progressively distilling and organizing meaning from long, continuous visual streams.
+2. **Plan-Ground Decoupling**: Reasoning and grounding are explicitly separated. The model first determines *what* semantic content to express by reasoning over latent thoughts, then decides *where* to retrieve the corresponding visual evidence.
+3. **Traceable Evidence Alignment**: Latent thoughts function as traceable anchors that align generated text with specific temporal regions of the input video, enabling explicit evidence attribution and more faithful translations.
+
+![Model Architecture](assets/model.png)
+
+## Installation
+
+```bash
+git clone https://github.com/fletcherjiang/SignThought.git
+cd SignThought
+```
+
+Create and activate a conda environment:
+
+```bash
+conda create -n signthought python=3.9 -y
+conda activate signthought
+```
+
+Install PyTorch 2.4.0:
+
+```bash
+pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu121
+```
+
+Install remaining dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Data & Features
+
+### Visual Features
+
+We use pre-extracted 1024-dim visual features following Voskou et al. (2021). The feature extractor is initialized from an open-sourced Inception network with gloss-dependent supervision removed. It is trained with a sentence-level contrastive objective using only paired sign video–sentence data (no gloss annotations required).
+
+Pre-extracted features for each dataset can be downloaded here:
+
+| Dataset | Features |
+|---|---|
+| PHOENIX2014T | [link](https://1drv.ms/f/c/bb2e0786d9c7e161/IgAFse1hwByCTrmGwykQkYhcATjjLCAP5O7OwWf_oCo1LEs?e=sCruAS) |
+| CSL-Daily |  [link](https://1drv.ms/f/c/bb2e0786d9c7e161/IgAFse1hwByCTrmGwykQkYhcATjjLCAP5O7OwWf_oCo1LEs?e=sCruAS) |
+
+For **CSL-Daily**, the pre-extracted features have been uploaded but are password-protected due to copyright restrictions. Please first obtain permission from the original dataset owners via the official page: https://ustc-slr.github.io/datasets/2021_csl_daily/. Once permission is granted, please contact us by email, and we will provide the corresponding extraction password.
+
+Download the Pre-extracted features from the links below and place them under `data/`:
+
+```
+data/
+├── PHOENIX2014T/
+│   ├── train
+│   ├── dev
+│   └── test
+└── csl/
+    ├── train
+    ├── dev
+    └── test
+```
+
+## Training
+
+```bash
+# PHOENIX2014T
+CUDA_VISIBLE_DEVICES=0 python -m main train configs/sign_phoenix.yaml
+```
+
+## Inference
+
+```bash
+# PHOENIX2014T
+CUDA_VISIBLE_DEVICES=0 python -m main test configs/sign_phoenix.yaml \
+    --ckpt experiment_results/phoenix14t_auto/best.ckpt
+```
+
+## Configuration
+
+Key parameters can be modified in the yaml files under `configs/`:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `thinking.K` | 8 | Number of latent thought slots |
+| `thinking.num_layers` | 2 | Number of thinking layers |
+| `thinking.num_segments` | 8 | Number of soft segment tokens M |
+| `training.batch_size` | 32 | Batch size |
+| `training.learning_rate` | 1e-3 | Initial learning rate |
+| `training.lambda_mono` | 0.1 | Monotonicity regularization weight |
+| `training.lambda_cont` | 0.2 | Contiguity regularization weight |
+
+## Citation
+
+```bibtex
+@misc{jiang2026thinklatentthoughtsnew,
+      title={Think in Latent Thoughts: A New Paradigm for Gloss-Free Sign Language Translation}, 
+      author={Yiyang Jiang and Li Zhang and Xiao-Yong Wei and Li Qing},
+      year={2026},
+      eprint={2604.15301},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2604.15301}, 
+}
+```
