@@ -1,3 +1,10 @@
+# SignThought stable baseline v1.0 | PHOENIX2014T
+# Hyperparameters follow the supplied SignThought Stable Baseline V1.0 config package.
+# Baseline source pin: f9ce7d175308e8c736df53dd29493503239738ea.
+# Runtime in main/helpers.py fixes betas=[0.95, 0.998], scheduling=plateau,
+# and weight_decay=0.003. warmup_step=2000 is retained but inactive with plateau.
+# Ablation-only changes: Thinking=disabled,
+# decoder cross_attention_mode=visual_only, structural losses lambda_mono=0.0, lambda_cont=0.0.
 name: sign_experiment
 data:
     data_path: ./data/
@@ -5,8 +12,8 @@ data:
     sgn: sign
     txt: text
     train: PHOENIX2014T/train
-    dev:   PHOENIX2014T/dev
-    test:  PHOENIX2014T/test
+    dev: PHOENIX2014T/dev
+    test: PHOENIX2014T/test
 testing:
     translation_beam_sizes:
     - 7
@@ -14,16 +21,14 @@ testing:
     - 4
 training:
     random_seed: 42
-    model_dir: "experiment_results/ablation_no_thought"
+    model_dir: "experiment_results/ablation_no_thought_s42_auto"
     translation_loss_weight: 1.0
     eval_metric: bleu
     optimizer: adamw
     learning_rate: 0.001
-    betas: [0.9, 0.998]
-    weight_decay: 0.003
     batch_size: 32
     num_valid_log: 6
-    epochs: 200
+    epochs: 500
     early_stopping_metric: eval_metric
     batch_type: sentence
     translation_normalization: batch
@@ -39,12 +44,12 @@ training:
     wandb:
         enabled: true
         project: slt
-        run_name: ablation_no_thought
+        run_name: phoenix14t_ablation_no_thought_s42
         watch: gradients
 model:
     encoder:
         type: transformer
-        num_layers: 2
+        num_layers: 1
         num_heads: 8
         embeddings:
             embedding_dim: 256
@@ -58,7 +63,7 @@ model:
     decoder:
         cross_attention_mode: visual_only
         type: transformer
-        num_layers: 2
+        num_layers: 1
         num_heads: 8
         embeddings:
             embedding_dim: 256
@@ -72,7 +77,7 @@ model:
 thinking:
     enabled: false
     K: 8
-    num_segments: 16
+    num_segments: 8
     num_layers: 2
     num_heads: 8
     hidden_size: 256
