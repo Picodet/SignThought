@@ -68,6 +68,8 @@ data/
 
 ## Training
 
+For the stable-baseline-based ablation training procedure, environment, seed matrix, launch commands, and evaluation protocol, see [docs/TRAINING_GUIDE_ZH.md](docs/TRAINING_GUIDE_ZH.md).
+
 ```bash
 # PHOENIX2014T
 CUDA_VISIBLE_DEVICES=0 python -m main train configs/sign_phoenix.yaml
